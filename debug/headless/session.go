@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -13,7 +14,7 @@ import (
 	"github.com/go-delve/delve/service/api"
 	"github.com/go-delve/delve/service/rpc2"
 	"github.com/google/uuid"
-	"github.com/xhd2015/debugger-mcp/debug/common"
+	"github.com/xhd2015/dlv-mcp/debug/common"
 )
 
 // SessionManager manages headless debug sessions
@@ -43,46 +44,56 @@ func (sm *SessionManager) NewSession(programPath string, args []string, mode str
 	// Generate a session ID
 	sessionID := fmt.Sprintf("session-%d", uuid.New().ID())
 
-	// Determine the correct command based on mode
-	dlvCommand := "debug"
-	if mode == "exec" {
-		dlvCommand = "exec"
-	} else if mode == "test" {
-		dlvCommand = "test"
-	}
+	var dlvCmd *exec.Cmd
+	var client *Client
+	var err error
 
-	// Start the Delve headless server
-	port := "54321" // Hardcoded for simplicity
-	fmt.Fprintf(os.Stderr, "DEBUG Session: Starting Delve in headless mode\n")
+	if mode == "remote" {
+		// For remote mode, we don't start a server
+		client = NewClient()
+		// The actual connection will be established by the tool
+	} else {
+		// Determine the correct command based on mode
+		dlvCommand := "debug"
+		if mode == "exec" {
+			dlvCommand = "exec"
+		} else if mode == "test" {
+			dlvCommand = "test"
+		}
 
-	// For headless mode, we need to specify the command (debug, exec, test)
-	// and use the --headless flag
-	dlvCmd := exec.Command("dlv", dlvCommand, "--headless", "--api-version=2", "--listen=127.0.0.1:"+port, programPath)
+		// Start the Delve headless server
+		port := "54321" // Hardcoded for simplicity
+		fmt.Fprintf(os.Stderr, "DEBUG Session: Starting Delve in headless mode\n")
 
-	if err := dlvCmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start Delve headless server: %w", err)
-	}
+		// For headless mode, we need to specify the command (debug, exec, test)
+		// and use the --headless flag
+		dlvCmd = exec.Command("dlv", dlvCommand, "--headless", "--api-version=2", "--listen=127.0.0.1:"+port, programPath)
 
-	// Give the server a moment to start up
-	time.Sleep(1 * time.Second)
+		if err := dlvCmd.Start(); err != nil {
+			return nil, fmt.Errorf("failed to start Delve headless server: %w", err)
+		}
 
-	// Connect to the headless server
-	client := NewClient()
-	err := client.Connect(context.Background(), "127.0.0.1:"+port)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to headless server: %w", err)
-	}
+		// Give the server a moment to start up
+		time.Sleep(1 * time.Second)
 
-	// Initialize the debug session
-	err = client.Initialize(programPath, args, mode)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize debug session: %w", err)
+		// Connect to the headless server
+		client = NewClient()
+		err = client.Connect(context.Background(), "127.0.0.1:"+port)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to headless server: %w", err)
+		}
+
+		// Initialize the debug session
+		err = client.Initialize(programPath, args, mode)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize debug session: %w", err)
+		}
 	}
 
 	// Create a new session
 	session := &Session{
 		id:       sessionID,
-		client:   client,
+		Client:   client,
 		program:  programPath,
 		cmd:      dlvCmd,
 		isPaused: false,
@@ -103,11 +114,18 @@ func (sm *SessionManager) CreateSession(ctx context.Context, programPath string,
 		return nil, err
 	}
 
+	// Cast to our Session type to set working directory
+	if s, ok := session.(*Session); ok {
+		// For remote sessions, working directory will be set by the tool
+		s.workingDir = filepath.Dir(programPath)
+	}
+
 	// Return session info
 	return &common.SessionInfo{
 		ID:          session.GetID(),
 		ProgramPath: programPath,
 		State:       "created",
+		WorkingDir:  filepath.Dir(programPath),
 	}, nil
 }
 
@@ -150,6 +168,7 @@ func (sm *SessionManager) ListSessions() []*common.SessionInfo {
 			ID:          id,
 			ProgramPath: s.program,
 			State:       state,
+			WorkingDir:  s.workingDir,
 		})
 	}
 
@@ -171,11 +190,22 @@ func (sm *SessionManager) GetSession(sessionID string) (common.Session, error) {
 
 // Session represents a headless debug session
 type Session struct {
-	id       string
-	client   *Client
-	program  string
-	cmd      *exec.Cmd
-	isPaused bool
+	id         string
+	Client     *Client
+	program    string
+	cmd        *exec.Cmd
+	isPaused   bool
+	workingDir string
+}
+
+// SetWorkingDir sets the working directory for the session
+func (s *Session) SetWorkingDir(dir string) {
+	s.workingDir = dir
+}
+
+// GetWorkingDir returns the working directory for the session
+func (s *Session) GetWorkingDir() string {
+	return s.workingDir
 }
 
 // GetID returns the session ID
@@ -199,7 +229,7 @@ func (s *Session) SetBreakpoint(file string, line int) (int, error) {
 	}
 
 	// Send the request to the Delve with a typed response
-	response, err := sendRequest[rpc2.CreateBreakpointOut](s.client, RPCCreateBreakpoint, createBpIn)
+	response, err := SendHeadlessClientRequest[rpc2.CreateBreakpointOut](s.Client, RPCCreateBreakpoint, createBpIn)
 	if err != nil {
 		return 0, fmt.Errorf("failed to set breakpoint: %w", err)
 	}
@@ -223,7 +253,7 @@ func (s *Session) Continue() error {
 	}
 
 	// Send the request to the Delve server with a typed response
-	response, err := sendRequest[rpc2.CommandOut](s.client, RPCCommand, cmdRequest)
+	response, err := SendHeadlessClientRequest[rpc2.CommandOut](s.Client, RPCCommand, cmdRequest)
 	if err != nil {
 		return fmt.Errorf("failed to continue execution: %w", err)
 	}
@@ -246,7 +276,7 @@ func (s *Session) Next() error {
 	}
 
 	// Send next request with a typed response
-	response, err := sendRequest[rpc2.CommandOut](s.client, RPCCommand, cmdRequest)
+	response, err := SendHeadlessClientRequest[rpc2.CommandOut](s.Client, RPCCommand, cmdRequest)
 	if err != nil {
 		return fmt.Errorf("failed to step over line: %w", err)
 	}
@@ -270,7 +300,7 @@ func (s *Session) StepIn() error {
 	}
 
 	// Send the request to the Delve server with a typed response
-	response, err := sendRequest[rpc2.CommandOut](s.client, RPCCommand, cmdRequest)
+	response, err := SendHeadlessClientRequest[rpc2.CommandOut](s.Client, RPCCommand, cmdRequest)
 	if err != nil {
 		return fmt.Errorf("failed to step into function: %w", err)
 	}
@@ -293,7 +323,7 @@ func (s *Session) StepOut() error {
 	}
 
 	// Send the request to the Delve server with a typed response
-	response, err := sendRequest[rpc2.CommandOut](s.client, RPCCommand, cmdRequest)
+	response, err := SendHeadlessClientRequest[rpc2.CommandOut](s.Client, RPCCommand, cmdRequest)
 	if err != nil {
 		return fmt.Errorf("failed to step out of function: %w", err)
 	}
@@ -327,7 +357,7 @@ func (s *Session) Evaluate(expr string) (string, error) {
 	}
 
 	// Send the request to the Delve server with a typed response
-	response, err := sendRequest[rpc2.EvalOut](s.client, RPCEval, evalIn)
+	response, err := SendHeadlessClientRequest[rpc2.EvalOut](s.Client, RPCEval, evalIn)
 	if err != nil {
 		return "", fmt.Errorf("failed to evaluate expression: %w", err)
 	}
@@ -396,7 +426,7 @@ func (s *Session) Terminate() error {
 	if !s.isExited() {
 		// If the program is still running, send the exit command
 		fmt.Fprintf(os.Stderr, "DEBUG Session: Sending exit command to terminate debugging\n")
-		_, err := sendRequest[rpc2.CommandOut](s.client, RPCCommand, map[string]interface{}{
+		_, err := SendHeadlessClientRequest[rpc2.CommandOut](s.Client, RPCCommand, map[string]interface{}{
 			"name": "exit",
 		})
 		if err != nil {
@@ -409,7 +439,7 @@ func (s *Session) Terminate() error {
 
 	// Close the client connection
 	fmt.Fprintf(os.Stderr, "DEBUG Session: Closing debugger client connection\n")
-	if err := s.client.Close(); err != nil {
+	if err := s.Client.Close(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to close client connection: %v\n", err)
 	}
 
@@ -434,7 +464,7 @@ func (s *Session) isExited() bool {
 	}
 
 	// Send a request to get the current state with a typed response
-	response, err := sendRequest[rpc2.StateOut](s.client, RPCState, stateIn)
+	response, err := SendHeadlessClientRequest[rpc2.StateOut](s.Client, RPCState, stateIn)
 	if err != nil {
 		// Common error patterns that indicate the program has exited
 		exitPatterns := []string{
@@ -469,4 +499,12 @@ func (s *Session) isExited() bool {
 // IsPaused returns whether the debug session is paused
 func (s *Session) IsPaused() bool {
 	return s.isPaused
+}
+
+// ConnectRemote connects to a remote debugger
+func (s *Session) ConnectRemote(ctx context.Context, address string) error {
+	if err := s.Client.Connect(ctx, address); err != nil {
+		return fmt.Errorf("failed to connect to remote debugger: %w", err)
+	}
+	return nil
 }

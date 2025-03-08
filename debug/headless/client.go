@@ -26,11 +26,14 @@ type jsonRPCRequest struct {
 // Simplified response structure for JSON-RPC
 type jsonRPCResponse struct {
 	Result json.RawMessage `json:"result"`
-	Error  *struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
-	Id int `json:"id"`
+	Error  json.RawMessage `json:"error,omitempty"`
+	Id     int             `json:"id"`
+}
+
+// Error response can be either a string or a struct
+type jsonRPCError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
 }
 
 // Client represents a headless client that communicates with a Delve headless server
@@ -130,10 +133,11 @@ func (c *Client) Initialize(program string, args []string, mode string) error {
 
 // SendRequest sends a request to the headless server and returns the response
 func (c *Client) SendRequest(method string, params interface{}, callback ...chan interface{}) (interface{}, error) {
-	return sendRequest[any](c, RPCMethod(method), params, callback...)
+	return SendHeadlessClientRequest[any](c, RPCMethod(method), params, callback...)
 }
 
-func sendRequest[T any](c *Client, method RPCMethod, params interface{}, callback ...chan interface{}) (T, error) {
+// SendHeadlessClientRequest sends a request to the headless server and returns the typed response
+func SendHeadlessClientRequest[T any](c *Client, method RPCMethod, params interface{}, callback ...chan interface{}) (T, error) {
 	var result T
 	c.mutex.Lock()
 	if c.isClosed {
@@ -225,7 +229,7 @@ func sendRequest[T any](c *Client, method RPCMethod, params interface{}, callbac
 			}
 			// Retry after reconnection
 			c.mutex.Unlock()
-			return sendRequest[T](c, method, params, callback...)
+			return SendHeadlessClientRequest[T](c, method, params, callback...)
 		}
 		return result, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -237,7 +241,6 @@ func sendRequest[T any](c *Client, method RPCMethod, params interface{}, callbac
 	}
 
 	// Read the response directly
-	// This is more reliable than using a goroutine for reading
 	line, err := c.reader.ReadString('\n')
 	if err != nil {
 		if err == io.EOF || strings.Contains(err.Error(), "use of closed network connection") {
@@ -247,30 +250,43 @@ func sendRequest[T any](c *Client, method RPCMethod, params interface{}, callbac
 			}
 			// Retry the request
 			c.mutex.Unlock()
-			return sendRequest[T](c, method, params, callback...)
+			return SendHeadlessClientRequest[T](c, method, params, callback...)
 		}
 		return result, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	// Parse the JSON response using our typed structure
+	// Parse the response
 	var resp jsonRPCResponse
 	if err := json.Unmarshal([]byte(line), &resp); err != nil {
 		return result, fmt.Errorf("failed to parse response: %w", err)
 	}
-
-	// Check for errors in the response
-	if resp.Error != nil {
-		return result, fmt.Errorf("error from Delve: %s", resp.Error.Message)
-	}
-
 	// Check if this is the response to our request
 	if resp.Id != seqNum {
 		return result, fmt.Errorf("response ID %d does not match request ID %d", resp.Id, seqNum)
 	}
 
-	// Unmarshal the result into the typed response
+	// Handle error response
+	if resp.Error != nil {
+		// Try to unmarshal as struct first
+		var errStruct jsonRPCError
+		if err := json.Unmarshal(resp.Error, &errStruct); err != nil {
+			// If that fails, try to unmarshal as string
+			var errStr string
+			if err := json.Unmarshal(resp.Error, &errStr); err != nil {
+				fmt.Fprintf(os.Stderr, "DEBUG: Failed to unmarshal error: %s\n", resp.Error)
+				return result, fmt.Errorf("unmarshalling error: %w", err)
+			}
+			return result, fmt.Errorf("RPC error: %s", errStr)
+		}
+		if errStruct.Code != 0 {
+			fmt.Fprintf(os.Stderr, "DEBUG: RPC error %d: %s\n", errStruct.Code, errStruct.Message)
+			return result, fmt.Errorf("RPC error %d: %s", errStruct.Code, errStruct.Message)
+		}
+	}
+
+	// Parse the result
 	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		return result, fmt.Errorf("failed to unmarshal result: %w", err)
+		return result, fmt.Errorf("failed to parse result: %w", err)
 	}
 
 	return result, nil

@@ -81,4 +81,5 @@ type SessionInfo struct {
 	ID          string
 	ProgramPath string
 	State       string
+	WorkingDir  string // Working directory of the debug session
 }

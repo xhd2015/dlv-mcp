@@ -3,9 +3,9 @@ package debug
 import (
 	"fmt"
 
-	"github.com/xhd2015/debugger-mcp/debug/common"
-	"github.com/xhd2015/debugger-mcp/debug/dap"
-	"github.com/xhd2015/debugger-mcp/debug/headless"
+	"github.com/xhd2015/dlv-mcp/debug/common"
+	"github.com/xhd2015/dlv-mcp/debug/dap"
+	"github.com/xhd2015/dlv-mcp/debug/headless"
 )
 
 // NewSessionManager creates a new session manager based on the debugger type

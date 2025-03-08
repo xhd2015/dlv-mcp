@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/google/go-dap"
-	"github.com/xhd2015/debugger-mcp/debug/common"
+	"github.com/xhd2015/dlv-mcp/debug/common"
 )
 
 // Client represents a DAP client that communicates with a Delve DAP server

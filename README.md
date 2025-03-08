@@ -25,7 +25,7 @@ This project implements a [Model Context Protocol (MCP)](https://github.com/mode
 ### Building from source
 
 ```bash
-git clone https://github.com/xhd2015/debugger-mcp.git
+git clone https://github.com/xhd2015/dlv-mcp.git
 cd debugger-mcp
 go build -o debugger-mcp cmd/server/main.go
 ```

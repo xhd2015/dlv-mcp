@@ -2,6 +2,7 @@ package debug
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,8 +11,11 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/xhd2015/debugger-mcp/debug"
-	"github.com/xhd2015/debugger-mcp/debug/common"
+	"github.com/xhd2015/dlv-mcp/debug"
+	"github.com/xhd2015/dlv-mcp/debug/common"
+	"github.com/xhd2015/dlv-mcp/debug/headless"
+	"github.com/xhd2015/dlv-mcp/log"
+	"github.com/xhd2015/dlv-mcp/tools/debug/debug_ext"
 )
 
 var (
@@ -20,6 +24,7 @@ var (
 )
 
 type ToolOptions struct {
+	Logger       log.Logger
 	DebuggerType string
 }
 
@@ -32,21 +37,30 @@ func RegisterTools(s *server.MCPServer, opts ToolOptions) error {
 
 	// Register tools
 	registerStartDebugTool(s, sessionManager, opts)
-	registerTerminateDebugTool(s, sessionManager)
-	registerListSessionsTool(s, sessionManager)
-	registerSetBreakpointTool(s, sessionManager)
-	registerContinueTool(s, sessionManager)
-	registerNextTool(s, sessionManager)
-	registerStepInTool(s, sessionManager)
-	registerStepOutTool(s, sessionManager)
-	registerEvaluateTool(s, sessionManager)
+	registerStartDebugRemoteTool(s, sessionManager, opts)
+	registerTerminateDebugTool(s, sessionManager, opts)
+	registerListSessionsTool(s, sessionManager, opts)
+	registerSetBreakpointTool(s, sessionManager, opts)
+	registerContinueTool(s, sessionManager, opts)
+	registerNextTool(s, sessionManager, opts)
+	registerStepInTool(s, sessionManager, opts)
+	registerStepOutTool(s, sessionManager, opts)
+	registerEvaluateTool(s, sessionManager, opts)
+
+	// Register extended debug tools
+	extOpts := debug_ext.ToolOptions{
+		Logger: opts.Logger,
+	}
+	if err := debug_ext.RegisterExtendedTools(s, sessionManager, extOpts); err != nil {
+		return fmt.Errorf("failed to register extended debug tools: %v", err)
+	}
 
 	return nil
 }
 
-func getDefaultMode(program string) (string, error) {
+func getDefaultMode(cwd string, program string) (string, error) {
 	// if is dir, then debug
-	state, err := os.Stat(program)
+	state, err := os.Stat(filepath.Join(cwd, program))
 	if err != nil {
 		return "", err
 	}
@@ -66,6 +80,10 @@ func getDefaultMode(program string) (string, error) {
 func registerStartDebugTool(s *server.MCPServer, sessionManager common.SessionManager, opts ToolOptions) {
 	tool := mcp.NewTool("start_debug",
 		mcp.WithDescription("Start a debug session for a Go program"),
+		mcp.WithString("cwd",
+			mcp.Required(),
+			mcp.Description("Current working directory, must be absolute path, cannot be ., ./ or ../ etc"),
+		),
 		mcp.WithString("program",
 			mcp.Required(),
 			mcp.Description("Path to Go program to debug (absolute or relative)"),
@@ -81,13 +99,17 @@ func registerStartDebugTool(s *server.MCPServer, sessionManager common.SessionMa
 	)
 
 	s.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		requestJson, _ := json.Marshal(request)
+		opts.Logger.Infof("start_debug: %s", string(requestJson))
 		// Extract parameters
+		cwd, _ := request.Params.Arguments["cwd"].(string)
 		program, _ := request.Params.Arguments["program"].(string)
 		mode, _ := request.Params.Arguments["mode"].(string)
 		if mode == "" {
 			var err error
-			mode, err = getDefaultMode(program)
+			mode, err = getDefaultMode(cwd, program)
 			if err != nil {
+				opts.Logger.Errorf("failed to get default mode: %v", err)
 				return mcp.NewToolResultError(fmt.Sprintf("Failed to get default mode: %v", err)), nil
 			}
 		}
@@ -104,30 +126,92 @@ func registerStartDebugTool(s *server.MCPServer, sessionManager common.SessionMa
 			}
 		}
 
+		fullProgram := filepath.Join(cwd, program)
+
 		// Convert relative path to absolute
-		if !filepath.IsAbs(program) {
-			absPath, err := filepath.Abs(program)
+		if !filepath.IsAbs(fullProgram) {
+			absPath, err := filepath.Abs(fullProgram)
 			if err != nil {
+				opts.Logger.Errorf("failed to get absolute path: %v", err)
 				return mcp.NewToolResultError(fmt.Sprintf("Failed to get absolute path: %v", err)), nil
 			}
-			program = absPath
+			fullProgram = absPath
 		}
 
 		// Start debug session
-		session, err := sessionManager.CreateSession(ctx, program, args, mode)
+		session, err := sessionManager.CreateSession(ctx, fullProgram, args, mode)
 		if err != nil {
+			opts.Logger.Errorf("failed to start debug session: %v", err)
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to start debug session: %v", err)), nil
-
 		}
 
+		opts.Logger.Infof("debug session created: %s", session.ID)
 		// Return session information
 		return mcp.NewToolResultText(fmt.Sprintf("Debug session started with ID: %s\nProgram: %s\nMode: %s",
 			session.ID, session.ProgramPath, mode)), nil
 	})
 }
 
+// registerStartDebugRemoteTool registers the remote debug tool
+func registerStartDebugRemoteTool(s *server.MCPServer, sessionManager common.SessionManager, opts ToolOptions) {
+	tool := mcp.NewTool("start_debug_remote",
+		mcp.WithDescription("Start a remote debug session by connecting to a headless delve instance"),
+		mcp.WithString("cwd",
+			mcp.Required(),
+			mcp.Description("Current working directory, must be absolute path, cannot be ., ./ or ../ etc"),
+		),
+		mcp.WithString("address",
+			mcp.Required(),
+			mcp.Description("Remote debugger address (e.g. localhost:2345)"),
+		),
+	)
+
+	s.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		requestJson, _ := json.Marshal(request)
+		opts.Logger.Infof("start_debug_remote: %s", string(requestJson))
+
+		// Extract parameters
+		cwd, _ := request.Params.Arguments["cwd"].(string)
+		address, _ := request.Params.Arguments["address"].(string)
+
+		// Validate cwd is absolute
+		if !filepath.IsAbs(cwd) {
+			absPath, err := filepath.Abs(cwd)
+			if err != nil {
+				opts.Logger.Errorf("failed to get absolute path: %v", err)
+				return mcp.NewToolResultError(fmt.Sprintf("Failed to get absolute path: %v", err)), nil
+			}
+			cwd = absPath
+		}
+
+		// Start remote debug session
+		// For remote sessions, we pass empty program path and args
+		session, err := sessionManager.CreateSession(ctx, "", nil, "remote")
+		if err != nil {
+			opts.Logger.Errorf("failed to start remote debug session: %v", err)
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to start remote debug session: %v", err)), nil
+		}
+
+		// Get the underlying session to set working directory and connect
+		if s, err := sessionManager.GetSession(session.ID); err == nil {
+			if headlessSession, ok := s.(*headless.Session); ok {
+				headlessSession.SetWorkingDir(cwd)
+				if err := headlessSession.ConnectRemote(ctx, address); err != nil {
+					opts.Logger.Errorf("failed to connect to remote debugger: %v", err)
+					return mcp.NewToolResultError(fmt.Sprintf("Failed to connect to remote debugger: %v", err)), nil
+				}
+			}
+		}
+
+		opts.Logger.Infof("remote debug session created: %s", session.ID)
+		// Return session information
+		return mcp.NewToolResultText(fmt.Sprintf("Remote debug session started with ID: %s\nAddress: %s\nWorking Directory: %s",
+			session.ID, address, cwd)), nil
+	})
+}
+
 // registerTerminateDebugTool registers the terminate debug tool
-func registerTerminateDebugTool(s *server.MCPServer, sessionManager common.SessionManager) {
+func registerTerminateDebugTool(s *server.MCPServer, sessionManager common.SessionManager, opts ToolOptions) {
 	tool := mcp.NewTool("terminate_debug",
 		mcp.WithDescription("Terminate a debug session"),
 		mcp.WithString("session_id",
@@ -151,7 +235,7 @@ func registerTerminateDebugTool(s *server.MCPServer, sessionManager common.Sessi
 }
 
 // registerListSessionsTool registers the list sessions tool
-func registerListSessionsTool(s *server.MCPServer, sessionManager common.SessionManager) {
+func registerListSessionsTool(s *server.MCPServer, sessionManager common.SessionManager, opts ToolOptions) {
 	tool := mcp.NewTool("list_debug_sessions",
 		mcp.WithDescription("List active debug sessions"),
 	)
@@ -176,7 +260,7 @@ func registerListSessionsTool(s *server.MCPServer, sessionManager common.Session
 }
 
 // registerSetBreakpointTool registers the set breakpoint tool
-func registerSetBreakpointTool(s *server.MCPServer, sessionManager common.SessionManager) {
+func registerSetBreakpointTool(s *server.MCPServer, sessionManager common.SessionManager, opts ToolOptions) {
 	tool := mcp.NewTool("set_breakpoint",
 		mcp.WithDescription("Set a breakpoint in a debug session"),
 		mcp.WithString("session_id",
@@ -195,6 +279,8 @@ func registerSetBreakpointTool(s *server.MCPServer, sessionManager common.Sessio
 
 	s.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		// Extract parameters
+		requestJson, _ := json.Marshal(request)
+		opts.Logger.Infof("set_breakpoint: %s", string(requestJson))
 		sessionID, _ := request.Params.Arguments["session_id"].(string)
 		file, _ := request.Params.Arguments["file"].(string)
 		lineFloat, _ := request.Params.Arguments["line"].(float64)
@@ -203,22 +289,25 @@ func registerSetBreakpointTool(s *server.MCPServer, sessionManager common.Sessio
 		// Get session
 		session, err := sessionManager.GetSession(sessionID)
 		if err != nil {
+			opts.Logger.Errorf("failed to get debug session: %v", err)
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to get debug session: %v", err)), nil
 		}
 
 		// Set breakpoint
 		id, err := session.SetBreakpoint(file, line)
 		if err != nil {
+			opts.Logger.Errorf("failed to set breakpoint: %v", err)
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to set breakpoint: %v", err)), nil
 		}
 
+		opts.Logger.Infof("breakpoint set: %s:%d (ID: %d)", file, line, id)
 		// Return success
 		return mcp.NewToolResultText(fmt.Sprintf("Breakpoint set at %s:%d (ID: %d)", file, line, id)), nil
 	})
 }
 
 // registerContinueTool registers the continue tool
-func registerContinueTool(s *server.MCPServer, sessionManager common.SessionManager) {
+func registerContinueTool(s *server.MCPServer, sessionManager common.SessionManager, opts ToolOptions) {
 	tool := mcp.NewTool("continue",
 		mcp.WithDescription("Continue execution in a debug session"),
 		mcp.WithString("session_id",
@@ -229,26 +318,31 @@ func registerContinueTool(s *server.MCPServer, sessionManager common.SessionMana
 
 	s.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		// Extract parameters
+		requestJson, _ := json.Marshal(request)
+		opts.Logger.Infof("continue: %s", string(requestJson))
 		sessionID, _ := request.Params.Arguments["session_id"].(string)
 
 		// Get session
 		session, err := sessionManager.GetSession(sessionID)
 		if err != nil {
+			opts.Logger.Errorf("failed to get debug session: %v", err)
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to get debug session: %v", err)), nil
 		}
 
 		// Continue execution
 		if err := session.Continue(); err != nil {
+			opts.Logger.Errorf("failed to continue execution: %v", err)
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to continue execution: %v", err)), nil
 		}
 
+		opts.Logger.Infof("execution continued")
 		// Return success
 		return mcp.NewToolResultText("Execution continued"), nil
 	})
 }
 
 // registerNextTool registers the next tool
-func registerNextTool(s *server.MCPServer, sessionManager common.SessionManager) {
+func registerNextTool(s *server.MCPServer, sessionManager common.SessionManager, opts ToolOptions) {
 	tool := mcp.NewTool("next",
 		mcp.WithDescription("Step over current line in a debug session"),
 		mcp.WithString("session_id",
@@ -278,7 +372,7 @@ func registerNextTool(s *server.MCPServer, sessionManager common.SessionManager)
 }
 
 // registerStepInTool registers the step in tool
-func registerStepInTool(s *server.MCPServer, sessionManager common.SessionManager) {
+func registerStepInTool(s *server.MCPServer, sessionManager common.SessionManager, opts ToolOptions) {
 	tool := mcp.NewTool("step_in",
 		mcp.WithDescription("Step into function in a debug session"),
 		mcp.WithString("session_id",
@@ -308,7 +402,7 @@ func registerStepInTool(s *server.MCPServer, sessionManager common.SessionManage
 }
 
 // registerStepOutTool registers the step out tool
-func registerStepOutTool(s *server.MCPServer, sessionManager common.SessionManager) {
+func registerStepOutTool(s *server.MCPServer, sessionManager common.SessionManager, opts ToolOptions) {
 	tool := mcp.NewTool("step_out",
 		mcp.WithDescription("Step out of function in a debug session"),
 		mcp.WithString("session_id",
@@ -338,7 +432,7 @@ func registerStepOutTool(s *server.MCPServer, sessionManager common.SessionManag
 }
 
 // registerEvaluateTool registers the evaluate tool
-func registerEvaluateTool(s *server.MCPServer, sessionManager common.SessionManager) {
+func registerEvaluateTool(s *server.MCPServer, sessionManager common.SessionManager, opts ToolOptions) {
 	tool := mcp.NewTool("evaluate",
 		mcp.WithDescription("Evaluate an expression in a debug session"),
 		mcp.WithString("session_id",

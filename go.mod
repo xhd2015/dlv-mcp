@@ -1,4 +1,4 @@
-module github.com/xhd2015/debugger-mcp
+module github.com/xhd2015/dlv-mcp
 
 go 1.23
 
@@ -25,4 +25,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/mark3labs/mcp-go => /Users/xhd2015/Projects/xhd2015/debugger-mcp/mcp-go
+replace github.com/mark3labs/mcp-go => /Users/xhd2015/Projects/xhd2015/dlv-mcp/mcp-go

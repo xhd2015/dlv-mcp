@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/xhd2015/debugger-mcp/debug/common"
+	"github.com/xhd2015/dlv-mcp/debug/common"
 )
 
 // SessionManager manages DAP debug sessions

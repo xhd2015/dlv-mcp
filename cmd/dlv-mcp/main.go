@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/xhd2015/debugger-mcp/tools/debug"
+	"github.com/xhd2015/dlv-mcp/tools/debug"
 )
 
 // install: go install ./cmd/dlv-mcp
@@ -21,6 +22,7 @@ Available commands:
 
 Options:
   --debugger <debugger>              Type of debugger to use: 'headless'(default) or 'dap'
+  --listen <listen>                   Listen address (default: 127.0.0.1:12763)
   --help   show help message
 `
 
@@ -37,6 +39,7 @@ func handle(args []string) error {
 		return nil
 	}
 
+	var listen string
 	var debugger string
 	n := len(args)
 	for i, arg := range args {
@@ -46,6 +49,11 @@ func handle(args []string) error {
 				return fmt.Errorf("%s requires arg", arg)
 			}
 			debugger = args[i+1]
+		case "--listen":
+			if i+1 >= n {
+				return fmt.Errorf("%s requires arg", arg)
+			}
+			listen = args[i+1]
 		case "-h", "--help":
 			fmt.Println(strings.TrimSpace(help))
 			return nil
@@ -65,17 +73,47 @@ func handle(args []string) error {
 		server.WithResourceCapabilities(true, true),
 	)
 
+	// for append log to file
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatalf("Failed to get user home directory: %v", err)
+	}
+	configDir := filepath.Join(homeDir, ".dlv-mcp")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		log.Fatalf("Failed to create config directory: %v", err)
+	}
+	logFile := filepath.Join(configDir, "dlv-mcp.log")
+	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		log.Fatalf("Failed to open log file: %v", err)
+	}
+	defer file.Close()
+
+	logger := &logger{
+		writer: file,
+	}
+
 	// Register tools
 	if err := debug.RegisterTools(s, debug.ToolOptions{
 		DebuggerType: debugger,
+		Logger:       logger,
 	}); err != nil {
 		return err
 	}
 
 	// Start the server with our monitored context
-	log.Printf("Starting MCP server with custom context...")
-	if err := server.ServeStdio(s); err != nil {
-		log.Fatalf("Server error: %v", err)
+
+	if listen == "" {
+		log.Printf("MCP Server listening on stdio...")
+		if err := server.ServeStdio(s); err != nil {
+			log.Fatalf("Server error: %v", err)
+		}
+	} else {
+		log.Printf("MCP Server listening on %s...", listen)
+		sseServer := server.NewSSEServer(s)
+		if err := sseServer.Start(listen); err != nil {
+			return err
+		}
 	}
 	return nil
 }
