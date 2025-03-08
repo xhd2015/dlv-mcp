@@ -1,0 +1,6 @@
+__debug_bin*
+
+/mcp-go
+
+/debugger-mcp
+/dlv-mcp
