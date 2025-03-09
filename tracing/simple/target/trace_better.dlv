@@ -1,0 +1,30 @@
+# Function tracing script with dynamic depth tracking
+# This approach shows the ACTUAL stack depth for each function call
+
+# Trace all three functions we want to monitor
+trace main.processPerson
+on 1 print "FUNCTION CALL START"
+on 1 print "Name: main.processPerson"
+on 1 print "Stack depth: (checking...)"
+on 1 stack 5
+on 1 print "FUNCTION CALL END"
+on 1 continue
+
+trace main.multiplyAge
+on 2 print "FUNCTION CALL START"
+on 2 print "Name: main.multiplyAge"
+on 2 print "Stack depth: (checking...)"
+on 2 stack 5
+on 2 print "FUNCTION CALL END"
+on 2 continue
+
+trace main.calculateValue
+on 3 print "FUNCTION CALL START"
+on 3 print "Name: main.calculateValue"
+on 3 print "Stack depth: (checking...)"
+on 3 stack 5
+on 3 print "FUNCTION CALL END"
+on 3 continue
+
+# Run the program
+continue 

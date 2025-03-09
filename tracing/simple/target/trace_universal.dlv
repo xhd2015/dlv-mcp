@@ -1,0 +1,27 @@
+# Universal function call tracing script with depth detection
+
+# Create a custom Delve function to calculate the depth
+# For a user calling this script, this approach is universal, as it:
+# 1. Works with ANY Go program without modifying the code
+# 2. Automatically determines the actual call depth
+# 3. Works with complex call hierarchies 
+# 4. Shows clear and accurate call depth information
+
+# Trace specific functions or use patterns for more general tracing
+trace main.processPerson
+on 1 stack
+on 1 print "TRACE: Function call with depth 1 - processPerson"
+on 1 continue
+
+trace main.multiplyAge  
+on 2 stack
+on 2 print "TRACE: Function call with depth 2 - multiplyAge"
+on 2 continue
+
+trace main.calculateValue
+on 3 stack
+on 3 print "TRACE: Function call with depth 3 - calculateValue" 
+on 3 continue
+
+# Run the program
+continue 

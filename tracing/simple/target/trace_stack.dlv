@@ -1,0 +1,26 @@
+# Function tracing script with goroutine stack examination
+# This approach uses the goroutine stack to determine call depth
+
+# Trace main.processPerson
+trace main.processPerson
+# Set breakpoint at function entry, print call info
+on 1 goroutine
+on 1 print "Entering processPerson - check stack depth above"
+on 1 continue
+
+# Trace main.multiplyAge
+trace main.multiplyAge
+# Set breakpoint at function entry, print call info
+on 2 goroutine
+on 2 print "Entering multiplyAge - check stack depth above"
+on 2 continue
+
+# Trace main.calculateValue
+trace main.calculateValue
+# Set breakpoint at function entry, print call info
+on 3 goroutine
+on 3 print "Entering calculateValue - check stack depth above"
+on 3 continue
+
+# Run the program
+continue 

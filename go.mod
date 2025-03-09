@@ -25,4 +25,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/mark3labs/mcp-go => /Users/xhd2015/Projects/xhd2015/dlv-mcp/mcp-go
+replace github.com/mark3labs/mcp-go => ./mcp-go
