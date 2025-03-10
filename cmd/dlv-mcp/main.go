@@ -18,13 +18,16 @@ dlv-mcp dlv mcp server
 Usage: dlv-mcp <cmd> [OPTIONS]
 
 Available commands:
-  help                               show help message
+  help                     Show help message
 
 Options:
-  --debugger <debugger>              Type of debugger to use: 'headless'(default) or 'dap'
-  --listen <listen>                   Listen address (default: 127.0.0.1:12763)
-  --help   show help message
+  --debugger <debugger>    Type of debugger to use: 'headless'(default) or 'dap'
+  --listen <listen>        Listen address (default: 127.0.0.1:12763)
+  --help                   Show help message
+  --version                Show version
+
 `
+const VERSION = "v0.0.3"
 
 func main() {
 	if err := handle(os.Args[1:]); err != nil {
@@ -56,6 +59,9 @@ func handle(args []string) error {
 			listen = args[i+1]
 		case "-h", "--help":
 			fmt.Println(strings.TrimSpace(help))
+			return nil
+		case "--version":
+			fmt.Println(VERSION)
 			return nil
 		}
 	}
