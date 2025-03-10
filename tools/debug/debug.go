@@ -9,13 +9,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 	"github.com/xhd2015/dlv-mcp/debug"
 	"github.com/xhd2015/dlv-mcp/debug/common"
 	"github.com/xhd2015/dlv-mcp/debug/headless"
 	"github.com/xhd2015/dlv-mcp/log"
 	"github.com/xhd2015/dlv-mcp/tools/debug/debug_ext"
+	"github.com/xhd2015/dlv-mcp/vendir/third-party/github.com/mark3labs/mcp-go/mcp"
+	"github.com/xhd2015/dlv-mcp/vendir/third-party/github.com/mark3labs/mcp-go/server"
 )
 
 var (

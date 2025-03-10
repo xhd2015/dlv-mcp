@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/xhd2015/dlv-mcp/vendir/third-party/github.com/mark3labs/mcp-go/mcp"
+	"github.com/xhd2015/dlv-mcp/vendir/third-party/github.com/mark3labs/mcp-go/server"
 )
 
 // TestDebugToolsRegistration tests that debug tools are registered with the server

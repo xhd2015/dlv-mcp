@@ -1,0 +1,8 @@
+# github.com/google/uuid v1.6.0
+## explicit
+github.com/google/uuid
+# github.com/mark3labs/mcp-go v0.11.2 => github.com/xhd2015/mcp-go-fork v0.0.0-20250309010455-90e3f8fc3a23
+## explicit; go 1.23
+github.com/mark3labs/mcp-go/mcp
+github.com/mark3labs/mcp-go/server
+# github.com/mark3labs/mcp-go => github.com/xhd2015/mcp-go-fork v0.0.0-20250309010455-90e3f8fc3a23

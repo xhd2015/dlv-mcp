@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 	"github.com/xhd2015/dlv-mcp/debug/common"
 	"github.com/xhd2015/dlv-mcp/debug/headless/headless_ext"
+	"github.com/xhd2015/dlv-mcp/vendir/third-party/github.com/mark3labs/mcp-go/mcp"
+	"github.com/xhd2015/dlv-mcp/vendir/third-party/github.com/mark3labs/mcp-go/server"
 )
 
 // registerVariableTools registers tools for variable inspection and manipulation

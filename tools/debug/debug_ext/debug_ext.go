@@ -1,9 +1,9 @@
 package debug_ext
 
 import (
-	"github.com/mark3labs/mcp-go/server"
 	"github.com/xhd2015/dlv-mcp/debug/common"
 	"github.com/xhd2015/dlv-mcp/log"
+	"github.com/xhd2015/dlv-mcp/vendir/third-party/github.com/mark3labs/mcp-go/server"
 )
 
 // ToolOptions contains configuration options for the debug tools

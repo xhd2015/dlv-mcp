@@ -6,6 +6,8 @@ An MCP server that allows LLMs to interact with the Delve Go debugger.
 
 This project implements a [Model Context Protocol (MCP)](https://github.com/modelcontextprotocol/servers) server that integrates with the [Delve Go debugger](https://github.com/go-delve/delve) to enable AI assistants to debug Go applications. The server exposes a set of tools that allow LLMs to start, control, and interact with debug sessions.
 
+You can find a working example at [EXAMPLE.md](./EXAMPLE.md).
+
 ## Features
 
 - Start debug sessions for Go programs
@@ -22,28 +24,26 @@ This project implements a [Model Context Protocol (MCP)](https://github.com/mode
 - Go 1.21 or higher
 - Delve debugger installed (`go install github.com/go-delve/delve/cmd/dlv@latest`)
 
-### Building from source
+### Install
 
-```bash
-git clone https://github.com/xhd2015/dlv-mcp.git
-cd debugger-mcp
-go build -o debugger-mcp cmd/server/main.go
+```sh
+go install github.com/xhd2015/dlv-mcp/cmd/dlv-mcp@latest
 ```
 
 ## Usage
 
 Start the MCP server:
 
-```bash
-./debugger-mcp
+```sh
+dlv-mcp --listen :9097
 ```
 
-The server will start on the default port (8080), which can be configured with the `MCP_SERVER_ADDR` environment variable.
+Then configure MCP Server at `http://localhost:9097/sse`, in Cursor or any MCP client.
 
-### Environment Variables
-
-- `MCP_SERVER_ADDR`: Server address (default: `:8080`)
-- `MCP_LOG_LEVEL`: Log level (default: `info`)
+### Inspect the MCP Server
+```sh
+bunx @modelcontextprotocol/inspector dlv-mcp
+```
 
 ## Available Tools
 
@@ -143,7 +143,7 @@ We've created a demo client that shows how to use the debugger-mcp server progra
 
 To run the demo:
 
-```bash
+```sh
 go run ./demo/main.go
 ```
 

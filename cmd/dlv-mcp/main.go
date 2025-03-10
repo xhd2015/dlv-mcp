@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mark3labs/mcp-go/server"
 	"github.com/xhd2015/dlv-mcp/tools/debug"
+	"github.com/xhd2015/dlv-mcp/vendir/third-party/github.com/mark3labs/mcp-go/server"
 )
 
 // install: go install ./cmd/dlv-mcp
